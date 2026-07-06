@@ -46,16 +46,7 @@ func ParseDailyNutrition(raw string) ([]DayTotals, error) {
 	}
 
 	// Pre-resolve which registry nutrients are present and at what index.
-	type col struct {
-		key string
-		idx int
-	}
-	var present []col
-	for _, n := range Registry {
-		if idx, found := colIndex[n.Column]; found {
-			present = append(present, col{key: n.Key, idx: idx})
-		}
-	}
+	present := presentNutrientCols(colIndex)
 
 	var days []DayTotals
 	for {
@@ -91,6 +82,25 @@ func ParseDailyNutrition(raw string) ([]DayTotals, error) {
 	}
 
 	return days, nil
+}
+
+// nutrientCol pairs a registry nutrient Key with the CSV column index it was found at.
+type nutrientCol struct {
+	key string
+	idx int
+}
+
+// presentNutrientCols resolves which registry nutrients appear in the given header (column name ->
+// index) and at what index, preserving Registry order. Any Cronometer export that shares the
+// daily-summary nutrient columns (e.g. the servings export) can reuse this.
+func presentNutrientCols(colIndex map[string]int) []nutrientCol {
+	var present []nutrientCol
+	for _, n := range Registry {
+		if idx, found := colIndex[n.Column]; found {
+			present = append(present, nutrientCol{key: n.Key, idx: idx})
+		}
+	}
+	return present
 }
 
 // parseValue parses a nutrient cell, treating empty as zero.

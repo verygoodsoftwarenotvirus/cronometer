@@ -55,5 +55,26 @@ func (c *Client) ExportDailyNutrition(ctx context.Context, start, end time.Time)
 	return c.export(ctx, "dailySummary", start, end)
 }
 
-// Future scope (v1 is summary-only): the same export() helper backs servings, exercises,
-// biometrics, and notes via the "servings", "exercises", "biometrics", and "notes" kinds.
+// ExportServings returns the raw CSV of individual food-diary entries ("servings") over the
+// inclusive date range. Each row is one logged food, carrying its meal group and per-serving
+// nutrients — the source for a per-meal breakdown.
+func (c *Client) ExportServings(ctx context.Context, start, end time.Time) (string, error) {
+	return c.export(ctx, "servings", start, end)
+}
+
+// ExportExercises returns the raw CSV of logged exercise/activity entries over the inclusive date
+// range.
+func (c *Client) ExportExercises(ctx context.Context, start, end time.Time) (string, error) {
+	return c.export(ctx, "exercises", start, end)
+}
+
+// ExportBiometrics returns the raw CSV of logged biometric measurements (weight, blood pressure,
+// etc.) over the inclusive date range.
+func (c *Client) ExportBiometrics(ctx context.Context, start, end time.Time) (string, error) {
+	return c.export(ctx, "biometrics", start, end)
+}
+
+// ExportNotes returns the raw CSV of free-text diary notes over the inclusive date range.
+func (c *Client) ExportNotes(ctx context.Context, start, end time.Time) (string, error) {
+	return c.export(ctx, "notes", start, end)
+}

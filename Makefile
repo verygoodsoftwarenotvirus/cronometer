@@ -93,6 +93,16 @@ lint: golang_lint shellcheck
 build:
 	$(SCRIPTS_DIR)/build.sh $(TOTAL_PACKAGE_LIST)
 
+# Build crono and run it against your real config (~/.config/crono/config.json by default).
+# Override the invocation with DEMO_ARGS, e.g. `make demo DEMO_ARGS="summary --days 7 --json"`.
+DEMO_BIN  := $(ARTIFACTS_DIR)/crono
+DEMO_ARGS ?= summary --days 3 --add-nutrients fiber,caffeine --averages
+
+.PHONY: demo
+demo: $(ARTIFACTS_DIR)
+	$(SCRIPTS_DIR)/build.sh -o $(DEMO_BIN) $(THIS)/cmd/crono
+	$(DEMO_BIN) $(DEMO_ARGS)
+
 .PHONY: test
 test: $(ARTIFACTS_DIR) vendor
 	$(SCRIPTS_DIR)/test.sh
