@@ -93,6 +93,105 @@ func TestParseDailyNutrition(T *testing.T) {
 	})
 }
 
+func TestAttachBodyMetrics(T *testing.T) {
+	T.Parallel()
+
+	newDays := func() []DayTotals {
+		return []DayTotals{
+			{Date: time.Date(2025, 6, 27, 0, 0, 0, 0, time.UTC), Values: map[string]float64{"energy": 2000}},
+			{Date: time.Date(2025, 6, 28, 0, 0, 0, 0, time.UTC), Values: map[string]float64{"energy": 1800}},
+		}
+	}
+
+	T.Run("averages same-day weigh-ins and ignores other metrics", func(t *testing.T) {
+		t.Parallel()
+		bio := []BiometricEntry{
+			{Date: time.Date(2025, 6, 27, 0, 0, 0, 0, time.UTC), Metric: "Weight", Unit: "lbs", Value: 180},
+			{Date: time.Date(2025, 6, 27, 0, 0, 0, 0, time.UTC), Metric: "Weight", Unit: "lbs", Value: 182},
+			{Date: time.Date(2025, 6, 27, 0, 0, 0, 0, time.UTC), Metric: "Heart Rate", Unit: "bpm", Value: 60},
+			{Date: time.Date(2025, 6, 28, 0, 0, 0, 0, time.UTC), Metric: "Weight", Unit: "lbs", Value: 179.5},
+		}
+		days := newDays()
+		AttachBodyMetrics(days, bio)
+
+		require.NotNil(t, days[0].Weight)
+		assert.InDelta(t, 181.0, days[0].Weight.Value, 0.001)
+		assert.Equal(t, "lbs", days[0].Weight.Unit)
+
+		require.NotNil(t, days[1].Weight)
+		assert.InDelta(t, 179.5, days[1].Weight.Value, 0.001)
+	})
+
+	T.Run("leaves days without a weigh-in nil", func(t *testing.T) {
+		t.Parallel()
+		bio := []BiometricEntry{
+			{Date: time.Date(2025, 6, 27, 0, 0, 0, 0, time.UTC), Metric: "Weight", Unit: "kg", Value: 82},
+		}
+		days := newDays()
+		AttachBodyMetrics(days, bio)
+		require.NotNil(t, days[0].Weight)
+		assert.Nil(t, days[1].Weight)
+	})
+
+	T.Run("matches the Weight metric case-insensitively", func(t *testing.T) {
+		t.Parallel()
+		bio := []BiometricEntry{
+			{Date: time.Date(2025, 6, 27, 0, 0, 0, 0, time.UTC), Metric: "weight", Unit: "kg", Value: 82},
+		}
+		days := newDays()
+		AttachBodyMetrics(days, bio)
+		require.NotNil(t, days[0].Weight)
+		assert.InDelta(t, 82.0, days[0].Weight.Value, 0.001)
+	})
+
+	T.Run("matches a source-suffixed metric and keeps weight and body fat separate", func(t *testing.T) {
+		t.Parallel()
+		// Real exports name the metrics "Weight (Apple Health)" / "Body Fat (Apple Health)"; the body-fat
+		// reading must land in BodyFat, never averaged into Weight.
+		bio := []BiometricEntry{
+			{Date: time.Date(2025, 6, 27, 0, 0, 0, 0, time.UTC), Metric: "Weight (Apple Health)", Unit: "lbs", Value: 172.5},
+			{Date: time.Date(2025, 6, 27, 0, 0, 0, 0, time.UTC), Metric: "Body Fat (Apple Health)", Unit: "%", Value: 18},
+			{Date: time.Date(2025, 6, 28, 0, 0, 0, 0, time.UTC), Metric: "Weight (Withings)", Unit: "lbs", Value: 171},
+		}
+		days := newDays()
+		AttachBodyMetrics(days, bio)
+
+		require.NotNil(t, days[0].Weight)
+		assert.InDelta(t, 172.5, days[0].Weight.Value, 0.001)
+		assert.Equal(t, "lbs", days[0].Weight.Unit)
+
+		require.NotNil(t, days[0].BodyFat)
+		assert.InDelta(t, 18.0, days[0].BodyFat.Value, 0.001)
+		assert.Equal(t, "%", days[0].BodyFat.Unit)
+
+		require.NotNil(t, days[1].Weight)
+		assert.InDelta(t, 171.0, days[1].Weight.Value, 0.001)
+		assert.Nil(t, days[1].BodyFat)
+	})
+
+	T.Run("averages same-day body-fat readings", func(t *testing.T) {
+		t.Parallel()
+		bio := []BiometricEntry{
+			{Date: time.Date(2025, 6, 27, 0, 0, 0, 0, time.UTC), Metric: "Body Fat (Apple Health)", Unit: "%", Value: 18},
+			{Date: time.Date(2025, 6, 27, 0, 0, 0, 0, time.UTC), Metric: "Body Fat (Apple Health)", Unit: "%", Value: 20},
+		}
+		days := newDays()
+		AttachBodyMetrics(days, bio)
+		require.NotNil(t, days[0].BodyFat)
+		assert.InDelta(t, 19.0, days[0].BodyFat.Value, 0.001)
+		assert.Nil(t, days[0].Weight)
+	})
+
+	T.Run("no biometrics leaves all days nil", func(t *testing.T) {
+		t.Parallel()
+		days := newDays()
+		AttachBodyMetrics(days, nil)
+		assert.Nil(t, days[0].Weight)
+		assert.Nil(t, days[1].Weight)
+		assert.Nil(t, days[0].BodyFat)
+	})
+}
+
 func TestSelectNutrients(T *testing.T) {
 	T.Parallel()
 

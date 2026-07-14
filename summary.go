@@ -16,6 +16,92 @@ const DateLayout = "2006-01-02"
 type DayTotals struct {
 	Date   time.Time
 	Values map[string]float64
+	// Weight and BodyFat are the day's body metrics, populated by AttachBodyMetrics when the caller
+	// opts in. Each is nil for a day with no matching reading (these come from the biometrics export,
+	// not daily nutrition).
+	Weight  *Measurement
+	BodyFat *Measurement
+}
+
+// Measurement is a single biometric value and its unit (e.g. 172.5 "lbs", 18 "%").
+type Measurement struct {
+	Unit  string
+	Value float64
+}
+
+// Base biometric metric names Cronometer reports. Real exports suffix the data source, e.g.
+// "Weight (Apple Health)"; matching is done on the base name via baseMetric.
+const (
+	WeightMetric  = "Weight"
+	BodyFatMetric = "Body Fat"
+)
+
+// baseMetric strips the trailing " (source)" that Cronometer appends to biometric metric names
+// ("Weight (Apple Health)" -> "Weight", "Body Fat (Withings)" -> "Body Fat").
+func baseMetric(metric string) string {
+	base := strings.TrimSpace(metric)
+	if strings.HasSuffix(base, ")") {
+		if i := strings.LastIndex(base, " ("); i >= 0 {
+			base = strings.TrimSpace(base[:i])
+		}
+	}
+	return base
+}
+
+// AttachBodyMetrics fills each day's Weight and BodyFat from the biometric readings, using the mean
+// of that day's samples (Cronometer/Apple Health can log several per day). Days with no matching
+// reading are left nil, and biometric days absent from days are ignored — these are add-on columns
+// to the nutrition rows.
+func AttachBodyMetrics(days []DayTotals, biometrics []BiometricEntry) {
+	weights := averageMetric(biometrics, WeightMetric)
+	bodyFat := averageMetric(biometrics, BodyFatMetric)
+	for i := range days {
+		key := days[i].Date.Format(DateLayout)
+		if m, ok := weights[key]; ok {
+			v := m
+			days[i].Weight = &v
+		}
+		if m, ok := bodyFat[key]; ok {
+			v := m
+			days[i].BodyFat = &v
+		}
+	}
+}
+
+// averageMetric returns the mean value per day (keyed by DateLayout) for the biometric whose base
+// name equals metricName (case-insensitively, ignoring the source suffix).
+func averageMetric(biometrics []BiometricEntry, metricName string) map[string]Measurement {
+	type acc struct {
+		unit string
+		sum  float64
+		n    int
+	}
+	byDay := make(map[string]*acc)
+	for _, b := range biometrics {
+		if !strings.EqualFold(baseMetric(b.Metric), metricName) {
+			continue
+		}
+		key := b.Date.Format(DateLayout)
+		a := byDay[key]
+		if a == nil {
+			a = &acc{unit: b.Unit}
+			byDay[key] = a
+		}
+		if a.unit == "" {
+			a.unit = b.Unit
+		}
+		a.sum += b.Value
+		a.n++
+	}
+
+	out := make(map[string]Measurement, len(byDay))
+	for key, a := range byDay {
+		if a.n == 0 {
+			continue
+		}
+		out[key] = Measurement{Value: a.sum / float64(a.n), Unit: a.unit}
+	}
+	return out
 }
 
 // ParseDailyNutrition parses Cronometer's daily-summary CSV into per-day totals. It is

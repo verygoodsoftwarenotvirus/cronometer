@@ -71,11 +71,18 @@ func renderTable(w io.Writer, days []DayTotals, nutrients []Nutrient, averages b
 	tw := tabwriter.NewWriter(w, 0, 2, 2, ' ', 0)
 	ew := &errWriter{w: tw}
 
+	extras := presentExtras(days)
+
 	if len(days) == 1 {
 		day := days[0]
 		ew.printf("%s\n", day.Date.Format(DateLayout))
 		for _, n := range nutrients {
 			ew.printf("  %s\t%s %s\n", n.Key, formatValue(day.Values[n.Key]), n.Unit)
+		}
+		for _, e := range extras {
+			if m := e.value(day); m != nil {
+				ew.printf("  %s\t%s %s\n", e.key, formatValue(m.Value), m.Unit)
+			}
 		}
 		return flush(tw, ew)
 	}
@@ -85,12 +92,18 @@ func renderTable(w io.Writer, days []DayTotals, nutrients []Nutrient, averages b
 	for _, n := range nutrients {
 		ew.printf("\t%s (%s)", n.Key, n.Unit)
 	}
+	for _, e := range extras {
+		ew.printf("\t%s (%s)", e.key, e.unit)
+	}
 	ew.printf("\n")
 
 	for _, day := range days {
 		ew.printf("%s", day.Date.Format(DateLayout))
 		for _, n := range nutrients {
 			ew.printf("\t%s", formatValue(day.Values[n.Key]))
+		}
+		for _, e := range extras {
+			ew.printf("\t%s", e.cell(day, formatValue))
 		}
 		ew.printf("\n")
 	}
@@ -101,10 +114,79 @@ func renderTable(w io.Writer, days []DayTotals, nutrients []Nutrient, averages b
 		for _, n := range nutrients {
 			ew.printf("\t%s", formatValue(avg[n.Key]))
 		}
+		for _, e := range extras {
+			ew.printf("\t%s", e.averageCell(days, formatValue))
+		}
 		ew.printf("\n")
 	}
 
 	return flush(tw, ew)
+}
+
+// extraColumn is an optional non-nutrient per-day column (weight, body fat), shown only when the
+// caller has populated it via AttachBodyMetrics.
+type extraColumn struct {
+	value  func(DayTotals) *Measurement
+	key    string
+	header string
+}
+
+// summaryExtraColumns lists the optional body-metric columns in display order.
+var summaryExtraColumns = []extraColumn{
+	{key: "weight", header: WeightMetric, value: func(d DayTotals) *Measurement { return d.Weight }},
+	{key: "body fat", header: BodyFatMetric, value: func(d DayTotals) *Measurement { return d.BodyFat }},
+}
+
+// resolvedExtra is an extraColumn that has at least one reading across the rendered days, paired
+// with the unit to label it (taken from the first day carrying a value).
+type resolvedExtra struct {
+	extraColumn
+	unit string
+}
+
+// presentExtras returns the extra columns that have data across days, in display order.
+func presentExtras(days []DayTotals) []resolvedExtra {
+	var out []resolvedExtra
+	for _, c := range summaryExtraColumns {
+		for _, d := range days {
+			if m := c.value(d); m != nil {
+				out = append(out, resolvedExtra{extraColumn: c, unit: m.Unit})
+				break
+			}
+		}
+	}
+	return out
+}
+
+// cell renders this column's value for one day, blank when the day has no reading. format controls
+// precision (one-decimal for tables, full for CSV).
+func (e resolvedExtra) cell(d DayTotals, format func(float64) string) string {
+	m := e.value(d)
+	if m == nil {
+		return ""
+	}
+	return format(m.Value)
+}
+
+// averageCell renders the mean of this column's present readings across days, blank when none.
+func (e resolvedExtra) averageCell(days []DayTotals, format func(float64) string) string {
+	var sum float64
+	var n int
+	for _, d := range days {
+		if m := e.value(d); m != nil {
+			sum += m.Value
+			n++
+		}
+	}
+	if n == 0 {
+		return ""
+	}
+	return format(sum / float64(n))
+}
+
+// csvFloat formats a value at full precision for CSV output.
+func csvFloat(v float64) string {
+	return strconv.FormatFloat(v, 'f', -1, 64)
 }
 
 // flush flushes the tabwriter and returns the first of any write error or flush error.
@@ -133,15 +215,32 @@ func RenderNutrientList(w io.Writer) error {
 	return flush(tw, ew)
 }
 
-// dayJSON is the JSON shape for one day.
+// dayJSON is the JSON shape for one day. Weight and bodyFat are siblings of nutrients (they are not
+// nutrients) and are omitted for days with no reading.
 type dayJSON struct {
 	Nutrients map[string]nutrientVal `json:"nutrients"`
+	Weight    *measurementJSON       `json:"weight,omitempty"`
+	BodyFat   *measurementJSON       `json:"bodyFat,omitempty"`
 	Date      string                 `json:"date"`
 }
 
 type nutrientVal struct {
 	Unit  string  `json:"unit"`
 	Value float64 `json:"value"`
+}
+
+type measurementJSON struct {
+	Unit  string  `json:"unit"`
+	Value float64 `json:"value"`
+}
+
+// measurementToJSON converts a nil-able Measurement to its JSON shape (nil stays nil so omitempty
+// drops the field).
+func measurementToJSON(m *Measurement) *measurementJSON {
+	if m == nil {
+		return nil
+	}
+	return &measurementJSON{Value: m.Value, Unit: m.Unit}
 }
 
 // renderJSON writes an array of day objects, each carrying the selected nutrients.
@@ -152,7 +251,13 @@ func renderJSON(w io.Writer, days []DayTotals, nutrients []Nutrient) error {
 		for _, n := range nutrients {
 			nv[n.Key] = nutrientVal{Value: day.Values[n.Key], Unit: n.Unit}
 		}
-		out = append(out, dayJSON{Date: day.Date.Format(DateLayout), Nutrients: nv})
+		d := dayJSON{
+			Date:      day.Date.Format(DateLayout),
+			Nutrients: nv,
+			Weight:    measurementToJSON(day.Weight),
+			BodyFat:   measurementToJSON(day.BodyFat),
+		}
+		out = append(out, d)
 	}
 
 	enc := json.NewEncoder(w)
@@ -167,20 +272,28 @@ func renderJSON(w io.Writer, days []DayTotals, nutrients []Nutrient) error {
 func renderCSV(w io.Writer, days []DayTotals, nutrients []Nutrient, averages bool) error {
 	cw := csv.NewWriter(w)
 
-	header := make([]string, 0, len(nutrients)+1)
+	extras := presentExtras(days)
+
+	header := make([]string, 0, len(nutrients)+1+len(extras))
 	header = append(header, "Date")
 	for _, n := range nutrients {
 		header = append(header, n.Column)
+	}
+	for _, e := range extras {
+		header = append(header, e.header+" ("+e.unit+")")
 	}
 	if err := cw.Write(header); err != nil {
 		return fmt.Errorf("writing CSV header: %w", err)
 	}
 
 	for _, day := range days {
-		row := make([]string, 0, len(nutrients)+1)
+		row := make([]string, 0, len(nutrients)+1+len(extras))
 		row = append(row, day.Date.Format(DateLayout))
 		for _, n := range nutrients {
-			row = append(row, strconv.FormatFloat(day.Values[n.Key], 'f', -1, 64))
+			row = append(row, csvFloat(day.Values[n.Key]))
+		}
+		for _, e := range extras {
+			row = append(row, e.cell(day, csvFloat))
 		}
 		if err := cw.Write(row); err != nil {
 			return fmt.Errorf("writing CSV row: %w", err)
@@ -189,10 +302,13 @@ func renderCSV(w io.Writer, days []DayTotals, nutrients []Nutrient, averages boo
 
 	if averages {
 		avg := averageValues(days, nutrients)
-		row := make([]string, 0, len(nutrients)+1)
+		row := make([]string, 0, len(nutrients)+1+len(extras))
 		row = append(row, "Average")
 		for _, n := range nutrients {
-			row = append(row, strconv.FormatFloat(avg[n.Key], 'f', -1, 64))
+			row = append(row, csvFloat(avg[n.Key]))
+		}
+		for _, e := range extras {
+			row = append(row, e.averageCell(days, csvFloat))
 		}
 		if err := cw.Write(row); err != nil {
 			return fmt.Errorf("writing CSV average row: %w", err)

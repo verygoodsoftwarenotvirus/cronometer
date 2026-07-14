@@ -73,9 +73,17 @@ also avoids Cronometer's aggressive login rate-limiting on repeated runs.
 | `--format table\|json\|csv` | `table` | output format |
 | `--json` | | shorthand for `--format json` |
 | `--averages` | | append an average row (table/csv) |
+| `--include-weight` | | add body-weight and body-fat columns (daily average of readings) |
 
 Nutrient names are case-insensitive and accept aliases (`calories`→energy, `carbs`→carbohydrates,
 `vit-c`→vitamin-c, …). Run `crono summary --list-nutrients` for the full set.
+
+`--include-weight` adds body-weight and body-fat columns sourced from the biometrics export
+(averaging that day's readings, in your account's units); a column is shown only if at least one day
+in the range has a reading, and days without one show blank. Metrics are matched by base name, so
+source-tagged exports like `Weight (Apple Health)` and `Body Fat (Apple Health)` are picked up. It
+costs one extra export per run against Cronometer's ~10/day cap, and is ignored under `--detailed`
+(which already lists these under Biomarkers).
 
 ## Caveats
 
