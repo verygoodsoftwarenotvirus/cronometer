@@ -33,7 +33,11 @@ type ExerciseEntry struct {
 // BiometricEntry is one logged measurement from the "biometrics" export (weight, blood pressure,
 // etc.).
 type BiometricEntry struct {
-	Date   time.Time
+	// Date is the calendar day of the reading (time-of-day stripped); it is the day-grouping key.
+	Date time.Time
+	// Time is the full timestamp (Date plus the reading's time-of-day) when the export records one,
+	// so same-day samples can be ordered. It falls back to Date (midnight) when no time is available.
+	Time   time.Time
 	Metric string
 	Unit   string
 	Value  float64
@@ -134,6 +138,41 @@ func parseDate(s string) (time.Time, error) {
 	return time.Time{}, fmt.Errorf("parsing date %q", s)
 }
 
+// timeOfDayLayouts are the clock formats Cronometer uses in a reading's Time column.
+var timeOfDayLayouts = []string{"15:04", "15:04:05", "3:04 PM", "3:04:05 PM"}
+
+// parseTimeOfDay parses a clock string into a duration since midnight. It returns ok=false for empty
+// or unrecognized input so callers can fall back to a bare date.
+func parseTimeOfDay(s string) (time.Duration, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, false
+	}
+	for _, layout := range timeOfDayLayouts {
+		if t, err := time.Parse(layout, s); err == nil {
+			return time.Duration(t.Hour())*time.Hour +
+				time.Duration(t.Minute())*time.Minute +
+				time.Duration(t.Second())*time.Second, true
+		}
+	}
+	return 0, false
+}
+
+// readingTime resolves a reading's full timestamp so same-day samples can be ordered. It combines
+// the date with the time-of-day from the Time column, falling back to a trailing time on the date
+// cell, and to the bare date (midnight) when neither is present.
+func readingTime(date time.Time, dateCell, timeCell string) time.Time {
+	if tod, ok := parseTimeOfDay(timeCell); ok {
+		return date.Add(tod)
+	}
+	if _, rest, found := strings.Cut(strings.TrimSpace(dateCell), " "); found {
+		if tod, ok := parseTimeOfDay(rest); ok {
+			return date.Add(tod)
+		}
+	}
+	return date
+}
+
 // ParseServings parses Cronometer's "servings" CSV into per-food entries. It is header-driven and
 // tolerant: the meal, food, and amount columns are matched against candidate names, and nutrient
 // columns reuse the daily-summary registry matching. Unknown columns are ignored.
@@ -225,13 +264,15 @@ func ParseBiometrics(raw string) ([]BiometricEntry, error) {
 		return nil, err
 	}
 
+	timeIdx, _ := firstCol(colIndex, "Time")
 	metricIdx, _ := firstCol(colIndex, "Metric", "Group", "Measurement")
 	unitIdx, _ := firstCol(colIndex, "Unit", "Units")
 	valueIdx, _ := firstCol(colIndex, "Amount", "Value")
 
 	entries := make([]BiometricEntry, 0, len(rows))
 	for _, row := range rows {
-		date, perr := parseDate(cell(row, dateIdx))
+		dateCell := cell(row, dateIdx)
+		date, perr := parseDate(dateCell)
 		if perr != nil {
 			return nil, perr
 		}
@@ -241,6 +282,7 @@ func ParseBiometrics(raw string) ([]BiometricEntry, error) {
 		}
 		entries = append(entries, BiometricEntry{
 			Date:   date,
+			Time:   readingTime(date, dateCell, cell(row, timeIdx)),
 			Metric: cell(row, metricIdx),
 			Unit:   cell(row, unitIdx),
 			Value:  value,
@@ -358,6 +400,9 @@ func BuildDayDetails(days []DayTotals, servings []ServingEntry, exercises []Exer
 		dd.Exercises = append(dd.Exercises, e)
 	}
 
+	// Keep only the first weight/body-fat reading of each day; other metrics pass through.
+	biometrics = filterFirstBodyReadings(biometrics)
+
 	// Aggregate biometrics per (day, metric) so high-frequency samples collapse to one row.
 	bioIndex := make(map[time.Time]map[string]*bioAccum)
 	bioOrder := make(map[time.Time][]string)
@@ -392,6 +437,38 @@ func BuildDayDetails(days []DayTotals, servings []ServingEntry, exercises []Exer
 	out := make([]DayDetail, 0, len(order))
 	for _, d := range order {
 		out = append(out, *index[d])
+	}
+	return out
+}
+
+// filterFirstBodyReadings keeps only the first (earliest) Weight and Body Fat reading of each day —
+// across every source — and passes every other metric through untouched. Body sources can log
+// several weigh-ins a day; the summary presents only the first and disregards the rest.
+func filterFirstBodyReadings(biometrics []BiometricEntry) []BiometricEntry {
+	type dayMetric struct {
+		day    string
+		metric string
+	}
+	key := func(b BiometricEntry) dayMetric {
+		return dayMetric{day: b.Date.Format(DateLayout), metric: strings.ToLower(baseMetric(b.Metric))}
+	}
+
+	first := make(map[dayMetric]int)
+	for i, b := range biometrics {
+		if !isBodyMetric(b.Metric) {
+			continue
+		}
+		k := key(b)
+		if j, seen := first[k]; !seen || b.Time.Before(biometrics[j].Time) {
+			first[k] = i
+		}
+	}
+
+	out := make([]BiometricEntry, 0, len(biometrics))
+	for i, b := range biometrics {
+		if !isBodyMetric(b.Metric) || first[key(b)] == i {
+			out = append(out, b)
+		}
 	}
 	return out
 }

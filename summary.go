@@ -48,13 +48,19 @@ func baseMetric(metric string) string {
 	return base
 }
 
-// AttachBodyMetrics fills each day's Weight and BodyFat from the biometric readings, using the mean
-// of that day's samples (Cronometer/Apple Health can log several per day). Days with no matching
-// reading are left nil, and biometric days absent from days are ignored — these are add-on columns
-// to the nutrition rows.
+// isBodyMetric reports whether metric is a weight or body-fat reading (ignoring the source suffix).
+func isBodyMetric(metric string) bool {
+	base := baseMetric(metric)
+	return strings.EqualFold(base, WeightMetric) || strings.EqualFold(base, BodyFatMetric)
+}
+
+// AttachBodyMetrics fills each day's Weight and BodyFat from the biometric readings, using only the
+// first reading of that day (Cronometer/Apple Health can log several per day, from several sources;
+// every reading after the first is disregarded). Days with no matching reading are left nil, and
+// biometric days absent from days are ignored — these are add-on columns to the nutrition rows.
 func AttachBodyMetrics(days []DayTotals, biometrics []BiometricEntry) {
-	weights := averageMetric(biometrics, WeightMetric)
-	bodyFat := averageMetric(biometrics, BodyFatMetric)
+	weights := firstBodyReading(biometrics, WeightMetric)
+	bodyFat := firstBodyReading(biometrics, BodyFatMetric)
 	for i := range days {
 		key := days[i].Date.Format(DateLayout)
 		if m, ok := weights[key]; ok {
@@ -68,38 +74,30 @@ func AttachBodyMetrics(days []DayTotals, biometrics []BiometricEntry) {
 	}
 }
 
-// averageMetric returns the mean value per day (keyed by DateLayout) for the biometric whose base
-// name equals metricName (case-insensitively, ignoring the source suffix).
-func averageMetric(biometrics []BiometricEntry, metricName string) map[string]Measurement {
-	type acc struct {
-		unit string
-		sum  float64
-		n    int
+// firstBodyReading returns the first (earliest) reading per day, keyed by DateLayout, for the
+// biometric whose base name equals metricName (case-insensitively, ignoring the source suffix).
+// Same-day readings are ordered by their timestamp; ties keep the first one seen in the export.
+func firstBodyReading(biometrics []BiometricEntry, metricName string) map[string]Measurement {
+	type reading struct {
+		at    time.Time
+		value float64
+		unit  string
 	}
-	byDay := make(map[string]*acc)
+	byDay := make(map[string]reading)
 	for _, b := range biometrics {
 		if !strings.EqualFold(baseMetric(b.Metric), metricName) {
 			continue
 		}
 		key := b.Date.Format(DateLayout)
-		a := byDay[key]
-		if a == nil {
-			a = &acc{unit: b.Unit}
-			byDay[key] = a
+		if cur, ok := byDay[key]; ok && !b.Time.Before(cur.at) {
+			continue
 		}
-		if a.unit == "" {
-			a.unit = b.Unit
-		}
-		a.sum += b.Value
-		a.n++
+		byDay[key] = reading{at: b.Time, value: b.Value, unit: b.Unit}
 	}
 
 	out := make(map[string]Measurement, len(byDay))
-	for key, a := range byDay {
-		if a.n == 0 {
-			continue
-		}
-		out[key] = Measurement{Value: a.sum / float64(a.n), Unit: a.unit}
+	for key, r := range byDay {
+		out[key] = Measurement{Value: r.value, Unit: r.unit}
 	}
 	return out
 }

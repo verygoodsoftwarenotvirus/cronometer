@@ -103,19 +103,21 @@ func TestAttachBodyMetrics(T *testing.T) {
 		}
 	}
 
-	T.Run("averages same-day weigh-ins and ignores other metrics", func(t *testing.T) {
+	T.Run("keeps the first same-day weigh-in and ignores other metrics", func(t *testing.T) {
 		t.Parallel()
+		day := time.Date(2025, 6, 27, 0, 0, 0, 0, time.UTC)
 		bio := []BiometricEntry{
-			{Date: time.Date(2025, 6, 27, 0, 0, 0, 0, time.UTC), Metric: "Weight", Unit: "lbs", Value: 180},
-			{Date: time.Date(2025, 6, 27, 0, 0, 0, 0, time.UTC), Metric: "Weight", Unit: "lbs", Value: 182},
-			{Date: time.Date(2025, 6, 27, 0, 0, 0, 0, time.UTC), Metric: "Heart Rate", Unit: "bpm", Value: 60},
+			// Logged out of order: the 08:00 reading comes first in the slice, but 06:00 is the first of the day.
+			{Date: day, Time: day.Add(8 * time.Hour), Metric: "Weight", Unit: "lbs", Value: 182},
+			{Date: day, Time: day.Add(6 * time.Hour), Metric: "Weight", Unit: "lbs", Value: 180},
+			{Date: day, Time: day.Add(6 * time.Hour), Metric: "Heart Rate", Unit: "bpm", Value: 60},
 			{Date: time.Date(2025, 6, 28, 0, 0, 0, 0, time.UTC), Metric: "Weight", Unit: "lbs", Value: 179.5},
 		}
 		days := newDays()
 		AttachBodyMetrics(days, bio)
 
 		require.NotNil(t, days[0].Weight)
-		assert.InDelta(t, 181.0, days[0].Weight.Value, 0.001)
+		assert.InDelta(t, 180.0, days[0].Weight.Value, 0.001)
 		assert.Equal(t, "lbs", days[0].Weight.Unit)
 
 		require.NotNil(t, days[1].Weight)
@@ -169,16 +171,17 @@ func TestAttachBodyMetrics(T *testing.T) {
 		assert.Nil(t, days[1].BodyFat)
 	})
 
-	T.Run("averages same-day body-fat readings", func(t *testing.T) {
+	T.Run("keeps the first same-day body-fat reading", func(t *testing.T) {
 		t.Parallel()
+		day := time.Date(2025, 6, 27, 0, 0, 0, 0, time.UTC)
 		bio := []BiometricEntry{
-			{Date: time.Date(2025, 6, 27, 0, 0, 0, 0, time.UTC), Metric: "Body Fat (Apple Health)", Unit: "%", Value: 18},
-			{Date: time.Date(2025, 6, 27, 0, 0, 0, 0, time.UTC), Metric: "Body Fat (Apple Health)", Unit: "%", Value: 20},
+			{Date: day, Time: day.Add(6 * time.Hour), Metric: "Body Fat (Apple Health)", Unit: "%", Value: 18},
+			{Date: day, Time: day.Add(20 * time.Hour), Metric: "Body Fat (Apple Health)", Unit: "%", Value: 20},
 		}
 		days := newDays()
 		AttachBodyMetrics(days, bio)
 		require.NotNil(t, days[0].BodyFat)
-		assert.InDelta(t, 19.0, days[0].BodyFat.Value, 0.001)
+		assert.InDelta(t, 18.0, days[0].BodyFat.Value, 0.001)
 		assert.Nil(t, days[0].Weight)
 	})
 

@@ -96,6 +96,8 @@ func TestParseBiometrics(t *testing.T) {
 	assert.Equal(t, "Weight", entries[0].Metric)
 	assert.Equal(t, "lbs", entries[0].Unit)
 	assert.InDelta(t, 180.0, entries[0].Value, 0.001)
+	// The Time column is parsed into the full reading timestamp for same-day ordering.
+	assert.Equal(t, time.Date(2025, 6, 27, 6, 0, 0, 0, time.UTC), entries[0].Time)
 	assert.Equal(t, "Heart Rate", entries[1].Metric)
 }
 
@@ -166,6 +168,38 @@ func TestBuildDayDetails(T *testing.T) {
 		assert.InDelta(t, 60.0, hr.Min, 0.001)
 		assert.InDelta(t, 80.0, hr.Max, 0.001)
 		assert.InDelta(t, 70.0, hr.Avg, 0.001)
+	})
+
+	T.Run("keeps only the first weight and body-fat reading per day, across sources", func(t *testing.T) {
+		t.Parallel()
+		day := time.Date(2025, 6, 27, 0, 0, 0, 0, time.UTC)
+		bio := []BiometricEntry{
+			// Two weight sources and two body-fat readings on one day, logged out of order.
+			{Date: day, Time: day.Add(8 * time.Hour), Metric: "Weight (Apple Health)", Unit: "lbs", Value: 181},
+			{Date: day, Time: day.Add(6 * time.Hour), Metric: "Weight (Withings)", Unit: "lbs", Value: 180},
+			{Date: day, Time: day.Add(20 * time.Hour), Metric: "Body Fat (Apple Health)", Unit: "%", Value: 20},
+			{Date: day, Time: day.Add(6 * time.Hour), Metric: "Body Fat (Apple Health)", Unit: "%", Value: 18},
+			// A non-body metric must still aggregate every sample.
+			{Date: day, Time: day.Add(6*time.Hour + time.Minute), Metric: "Heart Rate", Unit: "bpm", Value: 60},
+			{Date: day, Time: day.Add(6*time.Hour + 2*time.Minute), Metric: "Heart Rate", Unit: "bpm", Value: 80},
+		}
+		details := BuildDayDetails(nil, nil, nil, bio, nil)
+		require.Len(t, details, 1)
+
+		byBase := make(map[string]BiometricSummary)
+		for _, b := range details[0].Biometrics {
+			byBase[baseMetric(b.Metric)] = b
+		}
+
+		weight := byBase["Weight"]
+		assert.Equal(t, 1, weight.Count)
+		assert.InDelta(t, 180.0, weight.Last, 0.001) // 06:00 Withings, not the 08:00 Apple Health reading
+
+		bodyFat := byBase["Body Fat"]
+		assert.Equal(t, 1, bodyFat.Count)
+		assert.InDelta(t, 18.0, bodyFat.Last, 0.001)
+
+		assert.Equal(t, 2, byBase["Heart Rate"].Count)
 	})
 
 	T.Run("attaches activity, notes, and totals", func(t *testing.T) {
