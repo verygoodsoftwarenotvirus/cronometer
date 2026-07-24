@@ -64,6 +64,7 @@ also avoids Cronometer's aggressive login rate-limiting on repeated runs.
 | Flag | Default | Meaning |
 |------|---------|---------|
 | `--days N` | `1` | last N days through today |
+| `--offset-days N` | `0` | shift the `--days` window back N days (`--days 1 --offset-days 7` is the day one week ago) |
 | `--from` / `--to` | — | explicit `YYYY-MM-DD` range (both required; overrides `--days`) |
 | `--only-nutrients a,b` | — | show exactly these |
 | `--add-nutrients a,b` | — | defaults plus these |
