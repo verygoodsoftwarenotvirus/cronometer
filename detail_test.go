@@ -188,7 +188,7 @@ func TestBuildDayDetails(T *testing.T) {
 
 		byBase := make(map[string]BiometricSummary)
 		for _, b := range details[0].Biometrics {
-			byBase[baseMetric(b.Metric)] = b
+			byBase[BaseMetric(b.Metric)] = b
 		}
 
 		weight := byBase["Weight"]

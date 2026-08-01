@@ -450,7 +450,7 @@ func filterFirstBodyReadings(biometrics []BiometricEntry) []BiometricEntry {
 		metric string
 	}
 	key := func(b BiometricEntry) dayMetric {
-		return dayMetric{day: b.Date.Format(DateLayout), metric: strings.ToLower(baseMetric(b.Metric))}
+		return dayMetric{day: b.Date.Format(DateLayout), metric: strings.ToLower(BaseMetric(b.Metric))}
 	}
 
 	first := make(map[dayMetric]int)

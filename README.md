@@ -86,6 +86,68 @@ source-tagged exports like `Weight (Apple Health)` and `Body Fat (Apple Health)`
 costs one extra export per run against Cronometer's ~10/day cap, and is ignored under `--detailed`
 (which already lists these under Biomarkers).
 
+## `crono archive`
+
+Pull a whole calendar year into a SQLite file and query it locally forever after — no network, no
+rate limit.
+
+```console
+$ crono archive --year 2025 --out 2025.db
+wrote 2025.db (365 days, 4812 servings, 210 exercises, 1043 biometrics, 22 notes)
+```
+
+| Flag | Default | Meaning |
+|------|---------|---------|
+| `--year N` | — | required; the calendar year to archive |
+| `--out FILE` | `crono-<year>.db` | output path |
+| `--force` | | overwrite `--out` if it already exists (otherwise `crono` refuses) |
+| `--config PATH` | | as elsewhere |
+
+One run costs **five** of Cronometer's ~10 daily exports (one per data kind), all over a single
+login. The destination is checked *before* authenticating, so an existing file fails immediately
+rather than after spending that budget. The database is built under a temporary name and moved into
+place only when complete, so an interrupted run never replaces a good archive with a partial one.
+The file is written `0600` — it holds a year of personal health data.
+
+### Schema
+
+`crono` owns this schema; the nutrient columns are generated from the same registry that drives
+`crono summary --list-nutrients`, so the two cannot drift.
+
+| Table | Contents |
+|-------|----------|
+| `daily_nutrition` | one row per day, `date` plus one `REAL` column per nutrient (`energy_kcal`, `protein_g`, `vitamin_a_ug`, …) |
+| `serving` | every logged food: `date`, `time`, `meal`, `food`, `amount`, `category` |
+| `exercise` | `date`, `name`, `minutes`, `calories` |
+| `biometric` | `date`, `measured_at`, `metric`, `base_metric`, `unit`, `value` |
+| `note` | `date`, `text` |
+| `nutrient` | the registry itself — key, column name, original CSV header, unit |
+| `archive_meta` | schema version, generation time, archived range, `crono` build info |
+| `raw_export` | each export's CSV stored verbatim, so nothing Cronometer sent is lost |
+
+A nutrient the export didn't report is `NULL`, not `0` — "not measured" and "measured as zero" stay
+distinguishable. `base_metric` is the source-suffix-stripped metric name, so `base_metric = 'Weight'`
+matches `Weight (Apple Health)` without a `LIKE`.
+
+```console
+$ sqlite3 2025.db 'SELECT date, energy_kcal, protein_g FROM daily_nutrition ORDER BY date LIMIT 5;'
+$ sqlite3 2025.db 'SELECT meal, COUNT(*) FROM serving GROUP BY meal ORDER BY 2 DESC;'
+$ sqlite3 2025.db "SELECT date, AVG(value) FROM biometric WHERE base_metric='Weight' GROUP BY date;"
+$ sqlite3 2025.db "SELECT food, COUNT(*) c FROM serving GROUP BY food ORDER BY c DESC LIMIT 10;"
+```
+
+Two things `daily_nutrition` and `serving` do not carry, both recoverable from `raw_export`:
+
+- **Nutrients outside the registry.** Cronometer's daily summary currently also reports Oxalate,
+  Phytate, Insoluble/Soluble Fiber, Added Sugars, and the fatty-acid breakdown (ALA, DHA, EPA, AA,
+  LA). None are in `Registry` yet, so they get no column — add them to `nutrients.go` and they
+  appear in the next archive (and in `crono summary`).
+- **Per-food nutrient values.** The servings parser captures only the food list and meal grouping.
+
+Expect a sizeable file if you sync biometrics from Apple Health: a year of per-minute heart-rate
+samples is a few hundred thousand `biometric` rows, and the verbatim CSV in `raw_export` roughly
+doubles it. Drop the `raw_export` row and `VACUUM` if you want it smaller.
+
 ## Caveats
 
 - **Unofficial API.** `crono` drives the same reverse-engineered GWT-RPC + CSV-export flow the web

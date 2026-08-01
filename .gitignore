@@ -39,5 +39,7 @@ artifacts/
 
 TODO.md
 
-crono
+# Anchored: a bare "crono" also matches the cmd/crono/ directory, which silently
+# untracked the CLI entrypoint. This is only ever the root build artifact.
+/crono
 config.json

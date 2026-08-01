@@ -30,15 +30,15 @@ type Measurement struct {
 }
 
 // Base biometric metric names Cronometer reports. Real exports suffix the data source, e.g.
-// "Weight (Apple Health)"; matching is done on the base name via baseMetric.
+// "Weight (Apple Health)"; matching is done on the base name via BaseMetric.
 const (
 	WeightMetric  = "Weight"
 	BodyFatMetric = "Body Fat"
 )
 
-// baseMetric strips the trailing " (source)" that Cronometer appends to biometric metric names
+// BaseMetric strips the trailing " (source)" that Cronometer appends to biometric metric names
 // ("Weight (Apple Health)" -> "Weight", "Body Fat (Withings)" -> "Body Fat").
-func baseMetric(metric string) string {
+func BaseMetric(metric string) string {
 	base := strings.TrimSpace(metric)
 	if strings.HasSuffix(base, ")") {
 		if i := strings.LastIndex(base, " ("); i >= 0 {
@@ -50,7 +50,7 @@ func baseMetric(metric string) string {
 
 // isBodyMetric reports whether metric is a weight or body-fat reading (ignoring the source suffix).
 func isBodyMetric(metric string) bool {
-	base := baseMetric(metric)
+	base := BaseMetric(metric)
 	return strings.EqualFold(base, WeightMetric) || strings.EqualFold(base, BodyFatMetric)
 }
 
@@ -80,12 +80,12 @@ func AttachBodyMetrics(days []DayTotals, biometrics []BiometricEntry) {
 func firstBodyReading(biometrics []BiometricEntry, metricName string) map[string]Measurement {
 	type reading struct {
 		at    time.Time
-		value float64
 		unit  string
+		value float64
 	}
 	byDay := make(map[string]reading)
 	for _, b := range biometrics {
-		if !strings.EqualFold(baseMetric(b.Metric), metricName) {
+		if !strings.EqualFold(BaseMetric(b.Metric), metricName) {
 			continue
 		}
 		key := b.Date.Format(DateLayout)
