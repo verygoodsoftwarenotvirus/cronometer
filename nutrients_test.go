@@ -77,9 +77,9 @@ func TestResolveList(T *testing.T) {
 func TestDefaultNutrients(T *testing.T) {
 	T.Parallel()
 
-	T.Run("macros are the defaults", func(t *testing.T) {
+	T.Run("macros and fiber are the defaults", func(t *testing.T) {
 		t.Parallel()
-		assert.Equal(t, []string{"energy", "protein", "carbs", "fat"}, nutrientKeys(DefaultNutrients()))
+		assert.Equal(t, []string{"energy", "protein", "carbs", "fat", "fiber"}, nutrientKeys(DefaultNutrients()))
 	})
 }
 

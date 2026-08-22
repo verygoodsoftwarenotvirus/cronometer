@@ -198,11 +198,11 @@ func TestAttachBodyMetrics(T *testing.T) {
 func TestSelectNutrients(T *testing.T) {
 	T.Parallel()
 
-	T.Run("defaults to macros", func(t *testing.T) {
+	T.Run("defaults to macros and fiber", func(t *testing.T) {
 		t.Parallel()
 		got, err := SelectNutrients(SelectionOptions{})
 		require.NoError(t, err)
-		assert.Equal(t, []string{"energy", "protein", "carbs", "fat"}, nutrientKeys(got))
+		assert.Equal(t, []string{"energy", "protein", "carbs", "fat", "fiber"}, nutrientKeys(got))
 	})
 
 	T.Run("add extends the defaults", func(t *testing.T) {
@@ -223,7 +223,7 @@ func TestSelectNutrients(T *testing.T) {
 		t.Parallel()
 		got, err := SelectNutrients(SelectionOptions{Exclude: "energy"})
 		require.NoError(t, err)
-		assert.Equal(t, []string{"protein", "carbs", "fat"}, nutrientKeys(got))
+		assert.Equal(t, []string{"protein", "carbs", "fat", "fiber"}, nutrientKeys(got))
 	})
 
 	T.Run("all wins over only", func(t *testing.T) {

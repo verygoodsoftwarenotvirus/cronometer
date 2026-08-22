@@ -4,7 +4,7 @@ A small CLI for pulling your eating data out of [Cronometer](https://cronometer.
 terminal — a nutrient swiss-army knife built around `crono summary`.
 
 ```console
-$ crono summary --days 3 --add-nutrients fiber,caffeine
+$ crono summary --days 3 --add-nutrients caffeine
 $ crono summary --only-nutrients protein --days 1
 $ crono summary --days 3 --only-nutrients protein,fiber --json
 ```
@@ -75,6 +75,9 @@ also avoids Cronometer's aggressive login rate-limiting on repeated runs.
 | `--json` | | shorthand for `--format json` |
 | `--averages` | | append an average row (table/csv) |
 | `--include-weight` | | add body-weight and body-fat columns (daily average of readings) |
+
+The default columns are energy, protein, carbs, fat, and fiber; every other nutrient is opt-in via
+`--add-nutrients`, `--only-nutrients`, or `--all-nutrients`.
 
 Nutrient names are case-insensitive and accept aliases (`calories`→energy, `carbs`→carbohydrates,
 `vit-c`→vitamin-c, …). Run `crono summary --list-nutrients` for the full set.

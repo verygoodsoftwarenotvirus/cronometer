@@ -24,8 +24,8 @@ var Registry = []Nutrient{
 	{Key: "carbs", Column: "Carbs (g)", Unit: "g", Default: true, Aliases: []string{"carbohydrates", "carbohydrate", "carb"}},
 	{Key: "fat", Column: "Fat (g)", Unit: "g", Default: true},
 
-	// Carbohydrate breakdown.
-	{Key: "fiber", Column: "Fiber (g)", Unit: "g"},
+	// Carbohydrate breakdown (fiber is shown by default).
+	{Key: "fiber", Column: "Fiber (g)", Unit: "g", Default: true},
 	{Key: "net-carbs", Column: "Net Carbs (g)", Unit: "g", Aliases: []string{"netcarbs"}},
 	{Key: "sugars", Column: "Sugars (g)", Unit: "g", Aliases: []string{"sugar"}},
 	{Key: "starch", Column: "Starch (g)", Unit: "g"},

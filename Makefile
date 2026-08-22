@@ -95,13 +95,28 @@ build:
 
 # Build crono and run it against your real config (~/.config/crono/config.json by default).
 # Override the invocation with DEMO_ARGS, e.g. `make demo DEMO_ARGS="summary --days 7 --json"`.
-DEMO_BIN  := $(ARTIFACTS_DIR)/crono
-DEMO_ARGS ?= summary --days 3 --add-nutrients fiber,caffeine --averages
+CRONO_BIN := $(ARTIFACTS_DIR)/crono
+DEMO_BIN  := $(CRONO_BIN)
+DEMO_ARGS ?= summary --days 3 --add-nutrients caffeine --averages
 
 .PHONY: demo
 demo: $(ARTIFACTS_DIR)
 	$(SCRIPTS_DIR)/build.sh -o $(DEMO_BIN) $(THIS)/cmd/crono
 	$(DEMO_BIN) $(DEMO_ARGS)
+
+# Install the crono binary somewhere on your PATH. Defaults to $GOBIN, falling back to
+# $GOPATH/bin. Override with INSTALL_DIR, e.g. `make install INSTALL_DIR=/usr/local/bin`.
+INSTALL_DIR ?= $(shell go env GOBIN)
+ifeq ($(strip $(INSTALL_DIR)),)
+INSTALL_DIR := $(shell go env GOPATH)/bin
+endif
+
+.PHONY: install
+install: $(ARTIFACTS_DIR)
+	$(SCRIPTS_DIR)/build.sh -o $(CRONO_BIN) $(THIS)/cmd/crono
+	@mkdir -p $(INSTALL_DIR)
+	install -m 0755 $(CRONO_BIN) $(INSTALL_DIR)/crono
+	@echo "installed $(INSTALL_DIR)/crono"
 
 .PHONY: test
 test: $(ARTIFACTS_DIR) vendor
